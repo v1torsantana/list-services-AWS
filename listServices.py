@@ -15,10 +15,16 @@ def handle_errors(service_name, region, func):
 
 def get_ec2_instances(session, region):
     return handle_errors("EC2", region, lambda: [
-        ["EC2", region, next((tag["Value"] for tag in instance.get("Tags", []) if tag["Key"] == "Name"), "Sem Nome")]
+        [
+            "EC2",
+            region,
+            f"{next((tag['Value'] for tag in instance.get('Tags', []) if tag['Key'] == 'Name'), 'Sem Nome')} ({instance.get('PrivateIpAddress', 'Sem IP')})"
+        ]
         for reservation in session.client("ec2", region_name=region).describe_instances()["Reservations"]
         for instance in reservation["Instances"]
+        if instance.get("State", {}).get("Name") != "stopped"
     ])
+
 
 def get_elb_load_balancers(session, region):
     return handle_errors("Load Balancer", region, lambda: [
@@ -142,8 +148,88 @@ def run_service(service_function, session, regions):
             print(f"{service:<20}\t{region:<15}\t{name}")
     else:
         print("🚨 Nenhum serviço encontrado. Verifique as permissões e credenciais.")
+def get_route_tables(session, region):
+    return handle_errors("RouteTables", region, lambda: [
+        ["RouteTable", region, rt["RouteTableId"]]
+        for rt in session.client("ec2", region_name=region).describe_route_tables()["RouteTables"]
+    ])
+
+def get_nat_gateways(session, region):
+    return handle_errors("NATGateways", region, lambda: [
+        ["NATGateway", region, nat["NatGatewayId"]]
+        for nat in session.client("ec2", region_name=region).describe_nat_gateways()["NatGateways"]
+    ])
+
+def get_vpc_peerings(session, region):
+    return handle_errors("VPCPeeringConnections", region, lambda: [
+        ["VPCPeering", region, pcx["VpcPeeringConnectionId"]]
+        for pcx in session.client("ec2", region_name=region).describe_vpc_peering_connections()["VpcPeeringConnections"]
+    ])
+
+def get_vpcs(session, region):
+    return handle_errors("VPCs", region, lambda: [
+        ["VPC", region, vpc["VpcId"]]
+        for vpc in session.client("ec2", region_name=region).describe_vpcs()["Vpcs"]
+    ])
+
+def get_subnets(session, region):
+    return handle_errors("Subnets", region, lambda: [
+        ["Subnet", region, subnet["SubnetId"]]
+        for subnet in session.client("ec2", region_name=region).describe_subnets()["Subnets"]
+    ])
+
+def get_network_interfaces(session, region):
+    return handle_errors("NetworkInterfaces", region, lambda: [
+        ["ENI", region, eni["NetworkInterfaceId"]]
+        for eni in session.client("ec2", region_name=region).describe_network_interfaces()["NetworkInterfaces"]
+    ])
+
+def get_classic_load_balancers(session, region):
+    return handle_errors("ClassicLoadBalancers", region, lambda: [
+        ["CLB", region, lb["LoadBalancerName"]]
+        for lb in session.client("elb", region_name=region).describe_load_balancers()["LoadBalancerDescriptions"]
+    ])
+
+def get_albs(session, region):
+    return handle_errors("ALBs", region, lambda: [
+        ["ALB", region, lb["LoadBalancerArn"]]
+        for lb in session.client("elbv2", region_name=region).describe_load_balancers()["LoadBalancers"]
+        if lb["Type"] == "application"
+    ])
+
+def get_nlbs(session, region):
+    return handle_errors("NLBs", region, lambda: [
+        ["NLB", region, lb["LoadBalancerArn"]]
+        for lb in session.client("elbv2", region_name=region).describe_load_balancers()["LoadBalancers"]
+        if lb["Type"] == "network"
+    ])
+
+def get_firewalls(session, region):
+    return handle_errors("NetworkFirewalls", region, lambda: [
+        ["Firewall", region, fw["FirewallName"]]
+        for fw in session.client("network-firewall", region_name=region).list_firewalls()["Firewalls"]
+    ])
 
 
+def get_vpc_flow_logs(session, region):
+    return handle_errors("VPCFlowLogs", region, lambda: [
+        ["FlowLog", region, log["FlowLogId"]]
+        for log in session.client("ec2", region_name=region).describe_flow_logs()["FlowLogs"]
+    ])
+
+def get_iam_policies(session, region):
+    # IAM é global, region é ignorado mas mantido no padrão
+    return handle_errors("IAMPolicies", region, lambda: [
+        ["IAMPolicy", region, policy["PolicyName"]]
+        for policy in session.client("iam").list_policies(Scope='Local')['Policies']
+    ])
+
+def get_iam_roles(session, region):
+    # IAM é global, region ignorado mas mantido para padrão
+    return handle_errors("IAMRoles", region, lambda: [
+        ["IAMRole", region, role["RoleName"]]
+        for role in session.client("iam").list_roles()['Roles']
+    ])
 
 regions = [
     "us-east-1",
@@ -167,10 +253,10 @@ regions = [
 
 
 session = boto3.Session(
-    aws_access_key_id="",
-    aws_secret_access_key="",
-    aws_session_token=""
+    # aws_access_key_id="",
+    # aws_secret_access_key="",
+    # aws_session_token=""
 )
 
 # Exemplo de uso: rodar apenas Lambda
-run_service(get_nacls, session, regions)
+run_service(get_ec2_instances, session, regions)
